@@ -1,2 +1,8 @@
-# Data_Science_In_Lab_Theme_B
-Graded assignment on biomedical data imputation 
+# Data Science In-Lab 🏥 Clinical Trial : BICAR-ICU 🏥
+## Theme B: Secondary objectives/endpoints analysis and missing data
+
+Our first experience with clinical trials and biomedical data consists of a graded assignment in which we will present a poster outlining our reasoning, research, and results in order to explain the treatment of missing data and the analysis related to secondary endpoints. By examining the study synopsis, we will address secondary endpoints 1, 4, and 11, namely the change in SOFA score for organ failure, the occurrence of acute kidney injury as defined by AKIN criteria, and dependence on dialysis. There appears to be missing data in the “KIDNEY_FAILURE” table, this is MAR (Missing At Random) data, meaning that it is missing due to related and observed data.
+
+## Thème B : Analyse des critères de jugement secondaires et données manquantes
+
+Notre première expérience avec les essais cliniques et les données biomédicales consiste en un exercice noté dans le cadre duquel nous devrons présenter un poster exposant notre raisonnement, nos recherches et nos résultats afin d'expliquer le traitement des données manquantes et l'analyse liée aux objectifs secondaires. En examinant le synopsis de l'étude, nous répondrons aux objectifs secondaires n° 1, 4 et 11, à savoir l'évolution du score SOFA pour l'insuffisance des organes, l'occurence d'une insuffisance rénale aiguë telle que définie par les critères AKIN et la dépendance à la dialyse. Il semble y avoir des données manquantes dans le tableau « KIDNEY_FAILURE », il s'agit de données MAR (Missing At Random), ce qui signifie qu'elles sont manquantes en raison de données connexes et observées.
