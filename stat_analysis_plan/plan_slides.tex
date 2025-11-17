@@ -1,0 +1,99 @@
+\documentclass{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{csquotes}
+\usepackage{amssymb}
+\usepackage{graphicx}
+
+\usetheme{Szeged}
+\usepackage{xcolor}
+\definecolor{mygreen}{RGB}{46,139,87}
+\setbeamercolor{structure}{fg=mygreen}
+\usefonttheme{structuresmallcapsserif}
+
+\setbeamertemplate{footline}[frame number]
+
+\title{Plan d'analyse statistique}
+\subtitle{BICAR-ICU - Thème B}
+\author{ACHIQ Aya, CLETZ Laura, ZHU Qingjian}
+
+\date{\footnotesize 19 Novembre 2025}
+
+\titlegraphic{ 
+\centering
+\includegraphics[height=1.2cm]{UM.png}\hspace{0.3cm}%
+\includegraphics[height=1.2cm]{BioSSD_logo.png}\hspace{0.1cm}%
+\includegraphics[height=1.2cm]{FdS.jpg}
+}
+
+\begin{document}
+
+\begin{frame}
+
+  \titlepage
+
+\end{frame}
+
+\section{Problématique}
+
+\begin{frame}{Problématique}
+
+  \centering
+  Critère de jugement secondaire :\\
+  \Large\textbf{{Un traitement au bicarbonate de sodium (BS) réduit-il la dépendance à la dialyse chez les patients en soins intensifs ?}}\vspace{1cm}
+
+  \small{Comment gérer les données manquantes MAR (Missing At Random) dans cette analyse ?}
+
+\end{frame}
+
+\section{Variables retenues}
+
+\begin{frame}{Variables retenues}
+
+  \begin{itemize}
+    \item \textbf{Critère de jugement secondaire :} dépendance à la dialyse (RRT) sur les 28 jours (binaire : oui/non)
+    \item \textbf{Variable principale d'intérêt :} bras/groupe de traitement (BS vs no-BS)
+    \item \textbf{Covariables potentielles :}
+    \begin{itemize}
+      \item Comorbidités (maladie rénale chronique)
+      \item Paramètres cliniques à l'inclusion/randomisation (score AKIN)
+      \item Paramètres biologiques (créatinine, urée)
+    \end{itemize}
+  \end{itemize}
+
+  % créer des variables : nombre d'occurence de dialyse ? durée de dialyse ? score AKIN au cours du séjour ?
+  
+\end{frame}
+
+\section{Imputation des données}
+
+\begin{frame}{Imputation des données}
+
+  https://stefvanbuuren.name/fimd/
+
+  \begin{itemize}
+    \item \textbf{Méthode d'imputation :} Forêt aléatoire (Random Forest)
+    % ou plutôt MCMC ? ou plutôt algorithme de régression logistique bayésienne multiple ?
+    \item \textbf{Pourquoi ?} Données MAR binaires à imputer à l'aide de variables mixtes (catégorielles et continues) observées 
+    \item \textbf{Variables incluses dans le modèle d'imputation :}
+    \begin{itemize}
+      \item % inclure toutes les variables précédemment citées ? créer des variables supplémentaires ?
+    \end{itemize}
+  \end{itemize}
+
+\end{frame}
+
+\section{Méthode d'analyse}
+
+\begin{frame}{Méthode d'analyse}
+
+  \begin{itemize}
+    \item % on cherche des corrélations ? ou plus comme une régression entre la variable dépendante et les covariables ?
+  \end{itemize}
+
+\end{frame}
+
+\end{document}
