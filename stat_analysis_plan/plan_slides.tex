@@ -49,44 +49,9 @@
 
 \end{frame}
 
-\section{Variables retenues}
-
-\begin{frame}{Variables retenues}
-
-  \begin{itemize}
-    \item \textbf{Critère de jugement secondaire :} dépendance à la dialyse (RRT) sur les 28 jours (binaire : oui/non)
-    \item \textbf{Variable principale d'intérêt :} bras/groupe de traitement (BS vs no-BS)
-    \item \textbf{Covariables potentielles :}
-    \begin{itemize}
-      \item Comorbidités (maladie rénale chronique)
-      \item Paramètres cliniques à l'inclusion/randomisation (score AKIN)
-      \item Paramètres biologiques (créatinine, urée)
-    \end{itemize}
-  \end{itemize}
-
-  % créer des variables : nombre d'occurence de dialyse ? durée de dialyse ? score AKIN au cours du séjour ?
-  
-\end{frame}
-
 \section{Imputation des données}
 
 \begin{frame}{Imputation des données}
-
-  https://stefvanbuuren.name/fimd/
-
-  \begin{itemize}
-    \item \textbf{Méthode d'imputation :} Forêt aléatoire (Random Forest)
-    % ou plutôt MCMC ? ou plutôt algorithme de régression logistique bayésienne multiple ?
-    \item \textbf{Pourquoi ?} Données MAR binaires à imputer à l'aide de variables mixtes (catégorielles et continues) observées 
-    \item \textbf{Variables incluses dans le modèle d'imputation :}
-    \begin{itemize}
-      \item % inclure toutes les variables précédemment citées ? créer des variables supplémentaires ?
-    \end{itemize}
-  \end{itemize}
-
-\end{frame}
-
-\begin{frame}{Imputation des données — MICE}
 
   \textbf{Méthode :} \textit{Multivariate Imputation by Chained Equations (MICE)}\\
 
@@ -97,18 +62,14 @@
     \item Imputation \textbf{multiple} : reflète l’incertitude liée aux valeurs manquantes
     \item Utilisation dans les essais cliniques validée par FDA/EMA
   \end{itemize}
+  \vfill
+  \tiny{A. D. Shah, J. W. Bartlett, J. Carpenter, O. Nicholas, H. Hemingway (2014) \textbf{Comparison of random forest and parametric imputation models for imputing missing data using MICE: a CALIBER study.} \textit{American journal of epidemiology}, https://doi.org/10.1093/aje/kwt312}
+  \\\vspace{0.1cm}
+  \tiny{S. van Buuren (2018) \textbf{Flexible Imputation of Missing Data, Second Edition.} \textit{Chapman and Hall/CRC}, https://doi.org/10.1201/9780429492259}
 
 \end{frame}
 
 \section{Méthode d'analyse}
-
-%\begin{frame}{Méthode d'analyse}
-
-  %\begin{itemize}
-   % \item % on cherche des corrélations ? ou plus comme une régression entre la variable dépendante et les covariables ?
- % \end{itemize}
-
-%\end{frame}
 
 \begin{frame}{Méthode d’analyse selon la définition de Y}
 
@@ -130,6 +91,22 @@ Temporelle  & Temps (en jours) avant la première séance de RRT ou jusqu’à c
 
 \end{frame}
 
+\section{Variables retenues}
 
+\begin{frame}{Variables retenues}
+
+  \begin{itemize}
+    \item \textbf{Critère de jugement secondaire :} dépendance à la dialyse (RRT) sur les 28 jours (binaire : oui/non)
+    \item \textbf{Variable principale d'intérêt :} bras/groupe de traitement (BS vs no-BS)
+    \item \textbf{Covariables potentielles :}
+    \begin{itemize}
+      \item Paramètres démographiques (âge)
+      \item Paramètres cliniques à l'inclusion/randomisation (score SOFA et AKIN)
+      \item Paramètres biologiques (créatinine, urée)
+      \item Comorbidités (maladie rénale chronique)
+    \end{itemize}
+  \end{itemize}
+  
+\end{frame}
 
 \end{document}
