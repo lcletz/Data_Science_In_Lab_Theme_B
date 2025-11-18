@@ -86,14 +86,50 @@
 
 \end{frame}
 
-\section{Méthode d'analyse}
+\begin{frame}{Imputation des données — MICE}
 
-\begin{frame}{Méthode d'analyse}
+  \textbf{Méthode :} \textit{Multivariate Imputation by Chained Equations (MICE)}\\
 
+  \vspace{0.5cm}
   \begin{itemize}
-    \item % on cherche des corrélations ? ou plus comme une régression entre la variable dépendante et les covariables ?
+    \item Spécialement adaptée aux données \textbf{MAR (Missing At Random)}
+    \item Compatible avec des \textbf{variables mixtes} (binaires, continues, catégorielles)
+    \item Imputation \textbf{multiple} : reflète l’incertitude liée aux valeurs manquantes
+    \item Utilisation dans les essais cliniques validée par FDA/EMA
   \end{itemize}
 
 \end{frame}
+
+\section{Méthode d'analyse}
+
+%\begin{frame}{Méthode d'analyse}
+
+  %\begin{itemize}
+   % \item % on cherche des corrélations ? ou plus comme une régression entre la variable dépendante et les covariables ?
+ % \end{itemize}
+
+%\end{frame}
+
+\begin{frame}{Méthode d’analyse selon la définition de Y}
+
+\small
+\begin{tabular}{|p{1.7cm}|p{4.8cm}|p{3.5cm}|}
+\hline
+\textbf{Type de Y} & \textbf{Définition} & \textbf{Méthode d’analyse} \\
+\hline
+Binaire & RRT administrée au moins une fois entre J0–J28 (oui/non) & Régression logistique \\
+\hline
+Comptage  & Nombre total de jours avec RRT (valeurs 0 à 28) & Régression de Poisson  \\
+\hline
+Temporelle  & Temps (en jours) avant la première séance de RRT ou jusqu’à censure (J28 ou décès) & Modèle de Cox (analyse de survie) \\
+\hline
+\end{tabular}
+
+\vspace{0.3cm}
+\small{Toutes les méthodes permettent d’estimer l’effet du traitement (BS vs no-BS) sur la dépendance à la dialyse.}
+
+\end{frame}
+
+
 
 \end{document}
