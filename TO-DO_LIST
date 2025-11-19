@@ -1,0 +1,20 @@
+TO-DO LIST:
+OK - create the binary response variable of RRT within the 28 days using KIDNEY_FAILURE table;
+OK - create the binary variable of death within the 28 days using VITAL_STATUS table;
+- keep following variables in order to fuse/merge tables by SUBJID:
+* from ADMISSION: none;
+* from BASELINE_CLIN: ATCD_Smoking, ATCD_Diabetes, ATCD_Chronic_hypertension, ATCD_Cheart_failure, ATCD_Ckidney_disease,
+                    ATCD_Severe_liver_insufficiency, ATCD_Cirrhosis, ATCD_Immunocompromised;
+* from BIOLOGY: INCL_LAB_serum_creatinine, INCL_LAB_blood_urea_nitrogen;
+* from INCLUSION: SEX;
+* from NOSOCOMIAL: none;
+* from RANDOMIZATION: INCL_SEPSIS_YN, AGE_CLASS, INCL_AKIN, ARM_NUM (or ARM but not both);
+* from SOFA: SOFA_renal_H0, SOFA_renal_D7;
+- realise a series of descriptive statistics in order to select fewer variables based on whether or not 
+they are related to Missing Data (MD) in the response variable;
+- select useful variables in order to impute MD with MICE package;
+- compare imputed data with complete sub-sample (thus both cases are without MD);
+- select useful variables in order to start a logistic regression on the response variable;
+- compare results between members (if distinct variables have been used);
+- prepare slides or support with all information needed for the final poster.
+
