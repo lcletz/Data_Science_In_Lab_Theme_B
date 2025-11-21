@@ -24,7 +24,7 @@ inclusion <- inclusion %>% mutate_all(as.factor)
 summary(inclusion)
 
 randomization <- read_delim("../data/RANDOMIZATION.csv", col_names = T)
-randomization <- randomization[,c("SUBJID", "INCL_SEPSIS_YN", "AGE_CLASS", "INCL_AKIN", "ARM")]
+randomization <- randomization[,c("SUBJID", "INCL_SEPSIS_YN", "AGE_CLASS", "INCL_AKIN", "ARM_NUM")]
 randomization <-  randomization %>% mutate_all(as.factor)
 summary(randomization)
 
