@@ -1,6 +1,6 @@
 # Importation de la base de données
 library(readr)
-df <- read_csv("KIDNEY_FAILURE.csv")
+df <- read_csv("../data/KIDNEY_FAILURE.csv")
 
 #Inspection initiale (taux de NA)
 names(df)                                    
@@ -44,3 +44,6 @@ table(df_no_date$RRT_ever, useNA = "ifany")
 
 # Création de la base contenant les identifiants et notre Y 
 df_Y <- df_no_date[ , c("SUBJID", "SURNAME", "NAME", "RRT_ever") ]
+
+# Enregistrer en local la nouvelle variable
+write_delim(df_Y, "../data/RESPONSE_VAR.csv", delim = ';')
