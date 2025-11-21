@@ -1,0 +1,260 @@
+---
+title: "Descriptive Statistics"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Before starting to impute data, we need to observe the structure of the processed data "TABLE_TO_IMPUTE.csv". We want to see which variables or levels of those variables are related to the Missing Data (MD). We will thus count and statistically describe the data by group: individuals with MD and individuals without.
+
+## Data loading
+
+```{r}
+library(readr)
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
+head(data)
+```
+
+```{r}
+str(data)
+```
+
+```{r}
+library(dplyr)
+data <- data %>% mutate_at(c(2:9,12:20), as.factor)
+str(data)
+```
+
+## Count
+
+```{r}
+na_index <- which(is.na(data["RRT_ever"]))
+head(data[na_index,])
+```
+
+There is $80/400=0.2=20\%$ of MD in the RRT_ever variable, it's completely manageable.
+
+```{r}
+summary(data[na_index,])
+```
+
+At first sight, chronic hypertension, sex, sepsis at inclusion, AKIN score at inclusion and the arm the patient was included in don't seem of particular interest (distribution 50/50 or almost). We can remove them from the variables needed for the imputation stage. Exactly half the individuals with MD are in arm A (and of course, the other half in B), which can be reassuring when we will be at analysis stage. We could maybe turn the quantitative data into qualitative.
+
+## Distribution
+
+```{r}
+data <- data %>%
+  mutate(RRT_MD = ifelse(is.na(RRT_ever), "Missing", "Observed"))
+```
+
+### Qualitative 
+
+```{r}
+library(ggplot2)
+library(purrr)
+
+plots_cat <- map(names(data)[c(2:9,12:19)], ~{
+  var <- sym(.x)
+  data %>%
+    group_by(!!var, RRT_MD) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(p = n / sum(n)) %>%
+    ggplot(aes(x = !!var, y = p, fill = RRT_MD)) +
+    geom_col(position = "fill") +
+    scale_y_continuous(labels = scales::percent) +
+    labs(
+      title = paste("Missingness of RRT information by", .x),
+      y = "% Missing vs Observed"
+    ) +
+    theme_minimal()
+}) 
+
+for(i in 1:length(plots_cat)){
+  print(plots_cat[[i]])
+  }
+```
+
+It seems that MD may happen more often if:
+
+- the SOFA score below 4 (no renal failure);
+- the patient is old.
+
+(Is there something else?)
+
+So, maybe most MD comes from patients that don't need RRT because their organ are still safe or, on the opposite side, they come from patients that usually need RRT because they are too old and tired to be able to live through the treatment and still naturally filtrate their blood.
+
+### Quantitative
+
+```{r}
+ggplot(data, aes(x = INCL_LAB_serum_creatinine, color = RRT_MD)) +
+  geom_density() +
+  labs(title = "Distribution of serum creatinine by RRT information missingness") +
+  theme_minimal()
+
+ggplot(data, aes(x = INCL_LAB_blood_urea_nitrogen, color = RRT_MD)) +
+  geom_density() +
+  labs(title = "Distribution of blood urea nitrogen by RRT information missingness") +
+  theme_minimal()
+```
+
+MD may be related to a lower BUN.
+
+In **Clinical review: Timing of renal replacement therapy** published in *Critical Care* in 2011 by *M. Joannidis* and *L. G. Forni* (https://doi.org/10.1186/cc10109), it is said that:
+"RRT is usually initiated at BUN levels between 50 mg/dl and 110 mg/dl (approximate to 18 to 40 mmol/l) or a serum creatinine between 3.5 and 5 mg/dl."
+So, maybe most MD comes from patients that clearly don't need RRT due to their low BUN.
+
+## MCA (Multiple Correspondence Analysis)
+
+```{r}
+data <- data %>%
+  mutate(
+    cat_creatinine = cut(
+      INCL_LAB_serum_creatinine,
+      breaks = quantile(INCL_LAB_serum_creatinine[na_index], probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<1.4", "1.4-1.7", "1.7-2.0", ">2.0")
+    ),
+    cat_blood_urea = cut(
+      INCL_LAB_blood_urea_nitrogen,
+      breaks = quantile(INCL_LAB_blood_urea_nitrogen[na_index], probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<23.95", "23.95-29.55", "29.55-35.52", ">35.52")
+    )
+  )
+```
+
+```{r}
+library(ade4)
+disj <- data[-c(1,10:11,21)] %>% mutate_at("RRT_ever", addNA) %>% as.data.frame()
+disj <- acm.disjonctif(disj)
+head(disj)
+```
+
+```{r}
+library(FactoMineR)
+res.mca <- CA(disj, graph=F)
+barplot(res.mca$eig[,2])
+```
+
+```{r}
+library(factoextra)
+
+col_group <- rep("Other", ncol(disj))
+col_group[38:40] <- "RRT_ever"
+
+fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+to_remove <- c(grep("SEPSIS", names(disj)), grep("SEX", names(disj)))
+disj <- disj[-to_remove]
+res.mca <- CA(disj, graph=F)
+barplot(res.mca$eig[,2])
+```
+
+```{r}
+col_group <- rep("Other", ncol(disj))
+col_group[34:36] <- "RRT_ever"
+
+fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+to_remove <- c(grep("liver", names(disj)), grep("SOFA", names(disj)))
+disj <- disj[-to_remove]
+res.mca <- CA(disj, graph=F)
+barplot(res.mca$eig[,2])
+```
+
+```{r}
+col_group <- rep("Other", ncol(disj))
+col_group[23:25] <- "RRT_ever"
+
+fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+The barycenters are overlaid on each other.
+
+```{r}
+fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(1,4), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(2,4), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(3,4), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(1,5), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(2,5), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(3,5), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+```{r}
+fviz_ca_col(res.mca, axes=c(4,5), repel = TRUE, col.col = col_group,
+            palette = c("Other" = "red", "RRT_ever" = "blue"))
+```
+
+This is still a little confusing. MD may be related to patient with:
+
+- low and mid BUN;
+- high serum creatinine;
+- old age;
+- cirrhosis;
+- kidney disease;
+- hypertension;
+and patient that died.
+
+Some of those variables are similar to the ones observed in the "Distribution" part. But this time, we also have clues about which comorbidities may affect the need to RRT. It seems logical that patients that had a kidney disease may be there for a similar problem that requires RRT or that there is a chance to kidney failure during their stay in ICU that might be avoidable with RRT.
