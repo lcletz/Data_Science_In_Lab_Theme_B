@@ -1,7 +1,7 @@
 TO-DO LIST:
 OK - create the binary response variable of RRT within the 28 days using KIDNEY_FAILURE table;
 OK - create the binary variable of death within the 28 days using VITAL_STATUS table;
-- keep following variables in order to fuse/merge tables by SUBJID:
+OK - keep following variables in order to fuse/merge tables by SUBJID:
 * from ADMISSION: none;
 * from BASELINE_CLIN: ATCD_Smoking, ATCD_Diabetes, ATCD_Chronic_hypertension, ATCD_Cheart_failure, ATCD_Ckidney_disease,
                     ATCD_Severe_liver_insufficiency, ATCD_Cirrhosis, ATCD_Immunocompromised;
