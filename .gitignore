@@ -9,4 +9,4 @@
 *.fls
 .DS_Store
 *.csv
-
+.Rhistory

@@ -1,0 +1,1 @@
+This folder contains the scripts that will process, clean, merge, create and impute data.
