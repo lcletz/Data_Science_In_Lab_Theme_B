@@ -1,0 +1,88 @@
+---
+title: "Random Forest Imputation"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
+data <- data[,-1] %>%
+  mutate(
+    cat_creatinine = cut(
+      INCL_LAB_serum_creatinine,
+      breaks = quantile(INCL_LAB_serum_creatinine, probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<1.4", "1.4-1.7", "1.7-2.1", ">2.1")
+    ),
+    cat_blood_urea = cut(
+      INCL_LAB_blood_urea_nitrogen,
+      breaks = quantile(INCL_LAB_blood_urea_nitrogen, probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<24.48", "24.48-31.15", "31.15-37.45", ">37.45")
+    )
+  ) %>% mutate_all(as.factor)
+str(data)
+```
+
+The variable we will keep for the imputation are listed in the file `desc_stat.Rmd`.
+
+```{r}
+data <- data[c("cat_blood_urea", "cat_creatinine", "RRT_ever", "DEATH28", "AGE_CLASS", 
+               "ATCD_Cirrhosis", "ATCD_Ckidney_disease", "ATCD_Chronic_hypertension")]
+```
+
+```{r}
+library(mice)
+set.seed(1234)
+
+method <- rep("", 8)
+names(method) <- names(data)
+method["RRT_ever"] <- "rf"
+
+mice_class <- mice(data, method = method, m=5)
+```
+
+```{r}
+imputed_data1 <- complete(mice_class, 1)
+imputed_data2 <- complete(mice_class, 2)
+imputed_data3 <- complete(mice_class, 3)
+imputed_data4 <- complete(mice_class, 4)
+imputed_data5 <- complete(mice_class, 5)
+barplot(
+  rbind(table(imputed_data1$RRT_ever), table(imputed_data2$RRT_ever), table(imputed_data3$RRT_ever),
+        table(imputed_data4$RRT_ever), table(imputed_data5$RRT_ever)),
+  beside = TRUE
+)
+```
+
+The 5 imputations look more or less even.
+
+```{r}
+densityplot(mice_class, ~ RRT_ever)
+stripplot(mice_class, RRT_ever)
+```
+
+The density plot has similar curves and the overall trend seems to follow the observed data trend.
+The strip plot shows 5 quite similar imputations.
+
+```{r}
+sum(data[-na_index,]$RRT_ever==0)/nrow(data[-na_index,])
+sum(imputed_data1$RRT_ever==0)/nrow(data)
+sum(imputed_data2$RRT_ever==0)/nrow(data)
+sum(imputed_data3$RRT_ever==0)/nrow(data)
+sum(imputed_data4$RRT_ever==0)/nrow(data)
+sum(imputed_data5$RRT_ever==0)/nrow(data)
+```
+
+```{r}
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
+data$RRT_ever <- imputed_data1$RRT_ever
+write_delim(data, "../data/MICE_RF_IMPUTED_TABLE.csv", delim = ';')
+```
