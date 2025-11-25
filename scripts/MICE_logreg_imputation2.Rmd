@@ -1,0 +1,78 @@
+---
+title: "MICE imputation 2"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+output: pdf_document
+date: "2025-11-24"
+---
+Compared with the first imputation workflow (`MICE_logreg_imputation.Rmd`), this version differs on several points:
+
+- The set of variables included is not the same.  
+  Here, we include the stratification variables (AGE_CLASS, INCL_AKIN, INCL_SEPSIS_YN) and renal continuous markers (serum creatinine, blood urea nitrogen, SOFA renal scores), while some variables used previously were different or categorized.
+- Continuous clinical variables were kept in their original numeric form in this version.
+- The number of imputations differs: this document uses **20 imputations**, while the previous version used **5**.
+- The imputation method for the binary outcome (`RRT_ever`) also differs: this version uses the standard `"logreg"` method, while the previous workflow used `"logreg.boot"`.
+
+These points reflect differences in variable selection, data handling, and MICE specifications between the two scripts.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(mice)
+
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
+
+vars_mice <- c(
+  "RRT_ever", "AGE_CLASS", "INCL_AKIN",
+  "INCL_LAB_serum_creatinine", "INCL_LAB_blood_urea_nitrogen",
+  "SOFA_renal_H0", "SOFA_renal_D7",
+  "INCL_SEPSIS_YN", "ARM_NUM", "DEATH28",
+  "ATCD_Ckidney_disease", "ATCD_Diabetes", "SEX"
+)
+
+data_mice <- data %>% select(all_of(vars_mice))
+```
+
+```{r}
+set.seed(1234)
+meth <- make.method(data_mice)
+meth["RRT_ever"] <- "logreg"
+```
+
+```{r}
+pred <- make.predictorMatrix(data_mice)
+pred[,] <- 0
+pred["RRT_ever", setdiff(colnames(pred), "RRT_ever")] <- 1
+```
+
+```{r}
+imp_rrt <- mice(
+  data_mice,
+  m = 20,
+  maxit = 20,
+  method = meth,
+  predictorMatrix = pred,
+)
+```
+
+```{r}
+fit_imp <- with(
+  imp_rrt,
+  glm(
+    RRT_ever ~ ARM_NUM + AGE_CLASS + INCL_AKIN +
+      INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen +
+      SOFA_renal_H0 + SOFA_renal_D7 +
+      INCL_SEPSIS_YN + DEATH28 +
+      ATCD_Ckidney_disease + ATCD_Diabetes + SEX,
+    family = binomial
+  )
+)
+
+pooled <- pool(fit_imp)
+summary(pooled, conf.int = TRUE)
+
+```
+
