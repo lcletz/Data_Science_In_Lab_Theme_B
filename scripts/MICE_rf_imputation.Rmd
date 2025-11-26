@@ -1,7 +1,7 @@
 ---
 title: "Random Forest Imputation"
 author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
-date: "2025-11-24"
+date: "2025-11-26"
 output: pdf_document
 ---
 
@@ -9,80 +9,86 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Data loading 
+
+We require the `TABLE_TO_IMPUTE.csv` obtained via `\data_processing` in order to realize multiple imputation by chained equations.
+The variables that will be used in the imputation models are chosen following `desc_stat.Rmd` and chi-squared tests results:
+
 ```{r}
 library(readr)
 library(dplyr)
-data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
-data <- data[,-1] %>%
-  mutate(
-    cat_creatinine = cut(
-      INCL_LAB_serum_creatinine,
-      breaks = quantile(INCL_LAB_serum_creatinine, probs = c(0, 0.25, 0.5, 0.75, 1)),
-      include.lowest = TRUE,
-      labels = c("<1.4", "1.4-1.7", "1.7-2.1", ">2.1")
-    ),
-    cat_blood_urea = cut(
-      INCL_LAB_blood_urea_nitrogen,
-      breaks = quantile(INCL_LAB_blood_urea_nitrogen, probs = c(0, 0.25, 0.5, 0.75, 1)),
-      include.lowest = TRUE,
-      labels = c("<24.48", "24.48-31.15", "31.15-37.45", ">37.45")
-    )
-  ) %>% mutate_all(as.factor)
-str(data)
-```
-
-The variable we will keep for the imputation are listed in the file `desc_stat.Rmd`.
-
-```{r}
-data <- data[c("cat_blood_urea", "cat_creatinine", "RRT_ever", "DEATH28", "AGE_CLASS", 
-               "ATCD_Cirrhosis", "ATCD_Ckidney_disease", "ATCD_Chronic_hypertension")]
-```
-
-```{r}
 library(mice)
-set.seed(1234)
 
-method <- rep("", 8)
-names(method) <- names(data)
-method["RRT_ever"] <- "rf"
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
 
-mice_class <- mice(data, method = method, m=5)
-```
-
-```{r}
-imputed_data1 <- complete(mice_class, 1)
-imputed_data2 <- complete(mice_class, 2)
-imputed_data3 <- complete(mice_class, 3)
-imputed_data4 <- complete(mice_class, 4)
-imputed_data5 <- complete(mice_class, 5)
-barplot(
-  rbind(table(imputed_data1$RRT_ever), table(imputed_data2$RRT_ever), table(imputed_data3$RRT_ever),
-        table(imputed_data4$RRT_ever), table(imputed_data5$RRT_ever)),
-  beside = TRUE
+vars_mice <- c(
+  "RRT_ever", 
+  "AGE_CLASS", 
+  "SEX",
+  "ATCD_Chronic_hypertension",
+  "ATCD_Ckidney_disease",
+  "INCL_LAB_serum_creatinine",
+  "INCL_LAB_blood_urea_nitrogen",
+  "INCL_SEPSIS_YN",
+  "SOFA_renal_H0",
+  "SOFA_renal_D7"
 )
 ```
 
-The 5 imputations look more or less even.
+## Imputation
+
+We will try to impute by a MICE-based random forest the variable `RRT_ever` since it's the only one with missing values.
 
 ```{r}
-densityplot(mice_class, ~ RRT_ever)
-stripplot(mice_class, RRT_ever)
+meth <- make.method(data)
+meth["RRT_ever"] <- "rf"
 ```
 
-The density plot has similar curves and the overall trend seems to follow the observed data trend.
-The strip plot shows 5 quite similar imputations.
-
-```{r}
-sum(data[-na_index,]$RRT_ever==0)/nrow(data[-na_index,])
-sum(imputed_data1$RRT_ever==0)/nrow(data)
-sum(imputed_data2$RRT_ever==0)/nrow(data)
-sum(imputed_data3$RRT_ever==0)/nrow(data)
-sum(imputed_data4$RRT_ever==0)/nrow(data)
-sum(imputed_data5$RRT_ever==0)/nrow(data)
-```
+We create a matrix of predictors using every available variable but only allowing the previously chosen variables to be used during the imputation:
 
 ```{r}
-data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
-data$RRT_ever <- imputed_data1$RRT_ever
-write_delim(data, "../data/MICE_RF_IMPUTED_TABLE.csv", delim = ';')
+pred <- make.predictorMatrix(data)
+pred[,] <- 0
+pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
 ```
+
+We are now ready to impute those missing values, we chose `m=20` since, according to the *Von Hippel (2009)* rule of thumb, "the number of imputations should be similar to the percentage of cases that are incomplete" which is 20% here.
+
+```{r}
+imp_rrt <- mice(
+  data,
+  m = 20,    # because of 20% missing data
+  maxit = 20,
+  method = meth,
+  predictorMatrix = pred,
+  seed=1234
+)
+```
+
+## Before comparing imputations
+
+There is no way to find the "perfect" table between the 20 obtained since `RRT_ever` is a binary variable (we could think of a majority vote but we lack bibliography). We still want to compare the logistic regression imputed datasets with our random forest ones. We will then choose between our 20 datasets, the ones with similar proportions of 1 (of patients with RRT) when compared to the original, non-imputed dataset.
+
+```{r}
+na_index <- which(is.na(data$RRT_ever))
+sum(data[-na_index,]$RRT_ever==1)/nrow(data[-na_index,])
+```
+
+```{r}
+for (i in 1:20){
+  cat("Imputed dataset #", i, "\n")
+  imputed_data <- complete(imp_rrt, i)
+  print(sum(imputed_data$RRT_ever==1)/nrow(data))
+}
+```
+
+The original data's porportion of patient that needed a RRT is 0.575.
+The proportion for an imputed dataset that is nearer to it is 0.575 and corresponds to the 3rd and 12th datasets.
+
+We will compare the 3rd imputed dataset with similar proportion's logistic regression imputed dataset.
+
+```{r}
+write_delim(complete(imp_rrt, 3), "../data/RF_IMPUTED_DATA.csv", delim=";")
+```
+
+The comparison is established in `imputation_comparison.Rmd` file.

@@ -1,0 +1,78 @@
+---
+title: "Confusion Matrix"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data loading
+
+The required dataset are:
+- `TABLE_TO_IMPUTE.csv` obtained via `\data_processing`,
+- `LOGREG_IMPUTED_DATA.csv` obtained via `MICE_logreg_imputation2.Rmd`,
+- and `RF_IMPUTED_DATA.csv` obtained via `MICE_rf_imputation.Rmd`.
+
+```{r}
+library(readr)
+library(dplyr)
+library(mice)
+
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
+logreg_data <- read_delim("../data/LOGREG_IMPUTED_DATA.csv", show_col_types = FALSE)
+rf_data <- read_delim("../data/RF_IMPUTED_DATA.csv", show_col_types = FALSE)
+```
+
+## Confusion table
+
+We only retrieve the rows corresponding to imputed missing values:
+
+```{r}
+na_index <- which(is.na(data$RRT_ever))
+logreg_data <- logreg_data$RRT_ever[na_index]
+rf_data <- rf_data$RRT_ever[na_index]
+```
+
+The following confusion matrix allows us to compare the distribution of 1 and 0 after imputation depending on the method.
+
+```{r}
+table(logreg_data, rf_data)
+```
+
+At first sight, it is not ideal: 18 missing values (which represent 22.5% of them) have been imputed differently.
+There are metrics that will make it easier to evaluate:
+
+```{r}
+# https://thinkr.fr/abcdr/creer_une_matrice_de_confusion_avec_table/
+
+confusion_table <- table(logreg_data, rf_data)
+
+TP <- confusion_table[2, 2]
+TN <- confusion_table[1, 1]
+FP <- confusion_table[1, 2]
+FN <- confusion_table[2, 1]
+
+precision <- TP / (TP + FP)
+sensitivity <- TP / (TP + FN)
+accuracy <- (TP + VN) / length(na_index)
+f_score <- 2 * (precision * sensitivity) / (precision + sensitivity)
+
+cat("Precision:", precision, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Accuracy:", accuracy, "\n")
+cat("F-Score:", f_score, "\n")
+```
+
+"Precision is the proportion of items that are actually positive among those proposed as positive.
+Sensitivity measures the ability of a binary test to give a positive response when a positive response is expected.
+Accuracy is the proportion of correct elements, regardless of their value. Correct elements are all values on the diagonal."
+(https://en.wikipedia.org/wiki/Confusion_matrix)
+"F-score is the measure of predictive performance. The highest possible value of an F-score is 1.0, indicating perfect precision and sensitivity, and the lowest possible value is 0, if the precision or the sensitivity is zero."
+(https://en.wikipedia.org/wiki/F-score)
+
+Thus, all metrics are above 0.5 which is a good sign but none of them is high (near 1) enough. If we tried other dataset (since there are 20 of them for each imputation method), we find relatively similar values, sometimes higher, but absolutely never below 0.5.
+
+This means that the imputation methods, logistic regression vs random forest, are correct but not perfectly stable. Since we want reproducibility of the results, we will realize our analysis on the logistic regression pooled imputated datasets.

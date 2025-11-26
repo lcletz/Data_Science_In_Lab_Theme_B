@@ -1,18 +1,9 @@
 ---
-title: "MICE imputation 2"
+title: "Logistic Regression Imputation"
 author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-26"
 output: pdf_document
-date: "2025-11-24"
 ---
-Compared with the first imputation workflow (`MICE_logreg_imputation.Rmd`), this version differs on several points:
-
-- The set of variables included is not the same.  
-  Here, we include the stratification variables (AGE_CLASS, INCL_AKIN, INCL_SEPSIS_YN) and renal continuous markers (serum creatinine, blood urea nitrogen, SOFA renal scores), while some variables used previously were different or categorized.
-- Continuous clinical variables were kept in their original numeric form in this version.
-- The number of imputations differs: this document uses **20 imputations**, while the previous version used **5**.
-- The imputation method for the binary outcome (`RRT_ever`) also differs: this version uses the standard `"logreg"` method, while the previous workflow used `"logreg.boot"`.
-
-These points reflect differences in variable selection, data handling, and MICE specifications between the two scripts.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -26,32 +17,35 @@ library(mice)
 data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
 
 vars_mice <- c(
-  "RRT_ever", "AGE_CLASS", "INCL_AKIN",
-  "INCL_LAB_serum_creatinine", "INCL_LAB_blood_urea_nitrogen",
-  "SOFA_renal_H0", "SOFA_renal_D7",
-  "INCL_SEPSIS_YN", "ARM_NUM", "DEATH28",
-  "ATCD_Ckidney_disease", "ATCD_Diabetes", "SEX"
+  "RRT_ever", 
+  "AGE_CLASS", 
+  "SEX",
+  "ATCD_Chronic_hypertension",
+  "ATCD_Ckidney_disease",
+  "INCL_LAB_serum_creatinine",
+  "INCL_LAB_blood_urea_nitrogen",
+  "INCL_SEPSIS_YN",
+  "SOFA_renal_H0",
+  "SOFA_renal_D7"
 )
-
-data_mice <- data %>% select(all_of(vars_mice))
 ```
 
 ```{r}
 set.seed(1234)
-meth <- make.method(data_mice)
+meth <- make.method(data)
 meth["RRT_ever"] <- "logreg"
 ```
 
 ```{r}
-pred <- make.predictorMatrix(data_mice)
+pred <- make.predictorMatrix(data)
 pred[,] <- 0
-pred["RRT_ever", setdiff(colnames(pred), "RRT_ever")] <- 1
+pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
 ```
 
 ```{r}
 imp_rrt <- mice(
-  data_mice,
-  m = 20,
+  data,
+  m = 20,    # because of 20% missing data
   maxit = 20,
   method = meth,
   predictorMatrix = pred,
@@ -59,20 +53,34 @@ imp_rrt <- mice(
 ```
 
 ```{r}
-fit_imp <- with(
-  imp_rrt,
-  glm(
-    RRT_ever ~ ARM_NUM + AGE_CLASS + INCL_AKIN +
-      INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen +
-      SOFA_renal_H0 + SOFA_renal_D7 +
-      INCL_SEPSIS_YN + DEATH28 +
-      ATCD_Ckidney_disease + ATCD_Diabetes + SEX,
-    family = binomial
-  )
-)
-
-pooled <- pool(fit_imp)
-summary(pooled, conf.int = TRUE)
-
+plot(imp_rrt)
 ```
 
+"The plot shows the mean (left) and standard deviation (right) of the imputed values only. In general, we would like the streams to intermingle and be free of any trends at the later iterations."
+(https://www.gerkovink.com/miceVignettes/Convergence_pooling/Convergence_and_pooling.html)
+
+```{r}
+stripplot(imp_rrt, RRT_ever)
+```
+
+```{r}
+na_index <- which(is.na(data$RRT_ever))
+sum(data[-na_index,]$RRT_ever==1)/nrow(data[-na_index,])
+```
+
+```{r}
+for (i in 1:20){
+  cat("Imputed dataset #", i, "\n")
+  imputed_data <- complete(imp_rrt, i)
+  print(sum(imputed_data$RRT_ever==1)/nrow(data))
+}
+```
+
+The original data's porportion of patient that needed a RRT is 0.575.
+The proportion for an imputed dataset that is nearer to it is 0.575 and corresponds to the 9th and 11th datasets.
+
+We will compare the 8th imputed dataset with similar proportion's random forest imputed dataset.
+
+```{r}
+write_delim(complete(imp_rrt, 9), "../data/LOGREG_IMPUTED_DATA.csv")
+```
