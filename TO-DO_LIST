@@ -13,8 +13,9 @@ OK - keep following variables in order to fuse/merge tables by SUBJID:
 OK - realise a series of descriptive statistics in order to select fewer variables based on whether or not 
 they are related to Missing Data (MD) in the response variable;
 OK - select useful variables in order to impute MD with MICE package;
-OK - compare imputed data with complete sub-sample (thus both cases are without MD);
-- select useful variables in order to start a logistic regression on the response variable;
-- compare results between members (if distinct variables have been used);
-- prepare slides or support with all information needed for the final poster.
+OK - compare imputed datasets in order to judge imputation stability;
+- backward stepwise with AIC and BIC criteria in order to select significant variables 
+in logistic regression model;
+- compare results with same model applied with original missing data;
+- prepare graphs and gather information needed for the final poster.
 
