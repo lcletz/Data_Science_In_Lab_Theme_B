@@ -9,6 +9,11 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Data loading 
+
+We require the `TABLE_TO_IMPUTE.csv` obtained via `\data_processing` in order to realize multiple imputation by chained equations.
+The variables that will be used in the imputation models are chosen following `desc_stat.Rmd` and chi-squared tests results:
+
 ```{r}
 library(readr)
 library(dplyr)
@@ -30,17 +35,24 @@ vars_mice <- c(
 )
 ```
 
+## Imputation
+
+We will try to impute by a MICE-based random forest the variable `RRT_ever` since it's the only one with missing values.
+
 ```{r}
-set.seed(1234)
 meth <- make.method(data)
 meth["RRT_ever"] <- "logreg"
 ```
+
+We create a matrix of predictors using every available variable but only allowing the previously chosen variables to be used during the imputation:
 
 ```{r}
 pred <- make.predictorMatrix(data)
 pred[,] <- 0
 pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
 ```
+
+We are now ready to impute those missing values, we chose `m=20` since, according to the *Von Hippel (2009)* rule of thumb, "the number of imputations should be similar to the percentage of cases that are incomplete" which is 20% here.
 
 ```{r}
 imp_rrt <- mice(
@@ -49,19 +61,13 @@ imp_rrt <- mice(
   maxit = 20,
   method = meth,
   predictorMatrix = pred,
+  seed=1234
 )
 ```
 
-```{r}
-plot(imp_rrt)
-```
+## Before comparing imputations
 
-"The plot shows the mean (left) and standard deviation (right) of the imputed values only. In general, we would like the streams to intermingle and be free of any trends at the later iterations."
-(https://www.gerkovink.com/miceVignettes/Convergence_pooling/Convergence_and_pooling.html)
-
-```{r}
-stripplot(imp_rrt, RRT_ever)
-```
+There is no way to find the "perfect" table between the 20 obtained since `RRT_ever` is a binary variable (we could think of a majority vote but we lack bibliography). We still want to compare the logistic regression imputed datasets with our random forest ones. We will then choose between our 20 datasets, the ones with similar proportions of 1 (of patients with RRT) when compared to the original, non-imputed dataset.
 
 ```{r}
 na_index <- which(is.na(data$RRT_ever))
@@ -79,8 +85,10 @@ for (i in 1:20){
 The original data's porportion of patient that needed a RRT is 0.575.
 The proportion for an imputed dataset that is nearer to it is 0.575 and corresponds to the 9th and 11th datasets.
 
-We will compare the 8th imputed dataset with similar proportion's random forest imputed dataset.
+We will compare the 9th imputed dataset with similar proportion's random forest imputed dataset.
 
 ```{r}
-write_delim(complete(imp_rrt, 9), "../data/LOGREG_IMPUTED_DATA.csv")
+write_delim(complete(imp_rrt, 9), "../data/LOGREG_IMPUTED_DATA.csv", delim=";")
 ```
+
+The comparison is established in `imputation_comparison.Rmd` file.
