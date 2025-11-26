@@ -23,6 +23,8 @@ head(data)
 str(data)
 ```
 
+We mutate every categorical and binary variables as factors:
+
 ```{r}
 library(dplyr)
 data <- data %>% mutate_at(c(2:9,12:20), as.factor)
@@ -46,6 +48,8 @@ At first sight, chronic hypertension, sex, sepsis at inclusion, AKIN score at in
 
 ## Distribution
 
+In order to be able to see the distribution of missing values, we create a new variable: if there is a NA, then the data is "Missing" and if there is 0 or 1, then the data is "Observed":
+
 ```{r}
 data <- data %>%
   mutate(RRT_MD = ifelse(is.na(RRT_ever), "Missing", "Observed"))
@@ -57,33 +61,33 @@ data <- data %>%
 library(ggplot2)
 library(purrr)
 
-plots_cat <- map(names(data)[c(2:9,12:19)], ~{
-  var <- sym(.x)
+# Create a ggplot for each explanatory variable:
+plots_cat <- map(names(data)[c(2:9,12:19)], function(x){
+  var <- sym(x)       # converts the character variable name as a symbol       
   data %>%
-    group_by(!!var, RRT_MD) %>%
-    summarise(n = n(), .groups = "drop") %>%
-    mutate(p = n / sum(n)) %>%
-    ggplot(aes(x = !!var, y = p, fill = RRT_MD)) +
+    group_by(!!var, RRT_MD) %>%      # !! is an injection operator turning symbols to usable expressions
+    summarise(n = n(), .groups = "drop") %>%     # n() gives the current group size
+    mutate(p = n / sum(n)) %>%       # calculate proportions
+    ggplot(aes(x = !!var, y = p, fill = RRT_MD)) +      # ggplot to view proportions of missing and observed related to categorical explanatory variable
     geom_col(position = "fill") +
-    scale_y_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +     # proportion converted to percentage for readability
     labs(
-      title = paste("Missingness of RRT information by", .x),
+      title = paste("Missingness of RRT information by", x),
       y = "% Missing vs Observed"
     ) +
     theme_minimal()
 }) 
 
 for(i in 1:length(plots_cat)){
-  print(plots_cat[[i]])
+  print(plots_cat[[i]])        # show every ggplot
   }
 ```
 
 It seems that MD may happen more often if:
 
 - the SOFA score below 4 (no renal failure);
+- the patient is a man or a woman;
 - the patient is old.
-
-(Is there something else?)
 
 So, maybe most MD comes from patients that don't need RRT because their organ are still safe or, on the opposite side, they come from patients that usually need RRT because they are too old and tired to be able to live through the treatment and still naturally filtrate their blood.
 
@@ -101,13 +105,15 @@ ggplot(data, aes(x = INCL_LAB_blood_urea_nitrogen, color = RRT_MD)) +
   theme_minimal()
 ```
 
-MD may be related to a lower BUN.
+Both densities look gaussian, there might be an equal distribution of missing and observed over the quantitative variables. The BUN might show interesting modalities.
 
 In **Clinical review: Timing of renal replacement therapy** published in *Critical Care* in 2011 by *M. Joannidis* and *L. G. Forni* (https://doi.org/10.1186/cc10109), it is said that:
 "RRT is usually initiated at BUN levels between 50 mg/dl and 110 mg/dl (approximate to 18 to 40 mmol/l) or a serum creatinine between 3.5 and 5 mg/dl."
 So, maybe most MD comes from patients that clearly don't need RRT due to their low BUN.
 
-## MCA (Multiple Correspondence Analysis)
+## FA (Factorial Analysis)
+
+We have seen counts, distributions, and now we will precise our previous observations with a Factorial Analysis. We want all variables to be categorical, thus we convert our two quantitative variables as 4-levels qualitative variables and we choose the quantiles as levels breaks:
 
 ```{r}
 data <- data %>%
@@ -127,6 +133,8 @@ data <- data %>%
   )
 ```
 
+We add the missing values `NA` as another level of the variable `RRT_ever` and we convert the whole table as a complete disjunctive table:
+
 ```{r}
 library(ade4)
 disj <- data[-c(1,10:11,21)] %>% mutate_at("RRT_ever", addNA) %>% as.data.frame()
@@ -134,120 +142,126 @@ disj <- acm.disjonctif(disj)
 head(disj)
 ```
 
+We are now able to realize a FA on this table:
+
 ```{r}
 library(FactoMineR)
-res.mca <- CA(disj, graph=F)
-barplot(res.mca$eig[,2])
+res.fa <- CA(disj, graph=F)
+barplot(res.fa$eig[,2])
 ```
+
+It's hard to choose the right number of dimensions, we will then look at the first dimensions and try to explain it the best we can.
 
 ```{r}
 library(factoextra)
 
-col_group <- rep("Other", ncol(disj))
-col_group[38:40] <- "RRT_ever"
+# Color scheme: 
+col_group <- rep("blue", ncol(disj))
+RRT_index <- grep("RRT_ever", names(disj)) 
+col_group[RRT_index] <- "red"
 
-fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+# Plot first FA axis columns only:
+plot(res.fa, axes=1:2, invisible = "row", repel=T,
+     col.col = col_group)
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(1,3), invisible = "row", repel=T,
+     col.col = col_group)
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=2:3, invisible = "row", repel=T,
+     col.col = col_group)
+```
+
+The variables related to sepsis at inclusion and sex don't help much, we add them as illustrative variables.
+
+```{r}
+# Indexes for illustrative variables
+illu_var <- c(grep("SEPSIS", names(disj)), grep("SEX", names(disj)))
+res.fa <- CA(disj, graph=F, col.sup = illu_var)
 ```
 
 ```{r}
-to_remove <- c(grep("SEPSIS", names(disj)), grep("SEX", names(disj)))
-disj <- disj[-to_remove]
-res.mca <- CA(disj, graph=F)
-barplot(res.mca$eig[,2])
+# Color scheme:
+col_group <- rep("blue", ncol(disj))
+col_group[RRT_index] <- "red"
+col_group <- col_group[-illu_var]     # illustrative variables removed to avoid `col.col` parameter error
+
+plot(res.fa, axes=1:2, invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")    # illustrative variables in green
 ```
 
 ```{r}
-col_group <- rep("Other", ncol(disj))
-col_group[34:36] <- "RRT_ever"
+plot(res.fa, axes=c(1,3), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
+```
 
-fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+The variables related to sepsis at inclusion and liver insufficiency don't help much here, we add them as illustrative variables.
+
+```{r}
+illu_var <- c(illu_var, c(grep("liver", names(disj)), grep("SOFA", names(disj))))
+res.fa <- CA(disj, graph=F, col.sup=illu_var)
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
-```
+col_group <- rep("blue", ncol(disj))
+col_group[RRT_index] <- "red"
+col_group <- col_group[-illu_var]
 
-```{r}
-fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
-```
-
-```{r}
-to_remove <- c(grep("liver", names(disj)), grep("SOFA", names(disj)))
-disj <- disj[-to_remove]
-res.mca <- CA(disj, graph=F)
-barplot(res.mca$eig[,2])
-```
-
-```{r}
-col_group <- rep("Other", ncol(disj))
-col_group[23:25] <- "RRT_ever"
-
-fviz_ca_col(res.mca, axes=1:2, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=1:2, invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 The barycenters are overlaid on each other.
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(1,3), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(1,3), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=2:3, repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=2:3, invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(1,4), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(1,4), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(2,4), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(2,4), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(3,4), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(3,4), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(1,5), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(1,5), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(2,5), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(2,5), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(3,5), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(3,5), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
 ```{r}
-fviz_ca_col(res.mca, axes=c(4,5), repel = TRUE, col.col = col_group,
-            palette = c("Other" = "red", "RRT_ever" = "blue"))
+plot(res.fa, axes=c(4,5), invisible = "row", repel=T,
+     col.col = col_group, col.col.sup = "darkgreen")
 ```
 
-This is still a little confusing. MD may be related to patient with:
+This is still a little confusing. MD may be related to patients with:
 
 - low and mid BUN;
 - high serum creatinine;
@@ -258,3 +272,20 @@ This is still a little confusing. MD may be related to patient with:
 and patient that died.
 
 Some of those variables are similar to the ones observed in the "Distribution" part. But this time, we also have clues about which comorbidities may affect the need to RRT. It seems logical that patients that had a kidney disease may be there for a similar problem that requires RRT or that there is a chance to kidney failure during their stay in ICU that might be avoidable with RRT.
+
+## Conclusion
+
+We tried various methods in order to select variables for the imputations. 
+We thus keep:
+
+- AGE_CLASS
+- SEX
+- ATCD_Chronic_hypertension
+- ATCD_Ckidney_disease
+- INCL_LAB_serum_creatinine
+- INCL_LAB_blood_urea_nitrogen
+- INCL_SEPSIS_YN
+- SOFA_renal_H0
+- SOFA_renal_D7
+
+(We will not convert the quantitative variables in our imputation's models.)

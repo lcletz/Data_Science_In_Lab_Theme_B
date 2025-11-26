@@ -1,7 +1,13 @@
 library(readr)
 library(dplyr)
 
-# Voir TO-DO_LIST.txt pour le choix des variables retenues ci-après.
+# See TO-DO_LIST.txt in order to understand why the following variables have been kept.
+
+# Steps repeated for each dataset: 
+# - read data table;
+# - keep needed variables;
+# - mutate as factor if categorical or binary;
+# - check new table by viewing its summary.
 
 baseline_clin <- read_delim("../data/BASELINE_CLIN.csv", col_names = T)
 baseline_clin <- baseline_clin[,c("SUBJID", "ATCD_Smoking", "ATCD_Diabetes", "ATCD_Chronic_hypertension", 
@@ -42,6 +48,7 @@ response_var <- response_var[,c("SUBJID", "RRT_ever")]
 response_var <- response_var %>% mutate_all(as.factor)
 summary(response_var)
 
+# All the previous tables are merged/fused together using the patient ID `SUBJID`.
 data <- baseline_clin %>% 
   full_join(biology, by="SUBJID") %>%
   full_join(inclusion, by="SUBJID") %>%
@@ -51,5 +58,5 @@ data <- baseline_clin %>%
   full_join(response_var, by="SUBJID")
 summary(data)
 
-write_delim(data, "../data/TABLE_TO_IMPUTE.csv", delim = ';')
+write_delim(data, "../data/TABLE_TO_IMPUTE.csv", delim = ';')     # final table saved
 
