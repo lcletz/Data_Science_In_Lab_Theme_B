@@ -1,0 +1,132 @@
+---
+title: "Sensitivity Analysis with MICE"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(readr)
+library(dplyr)
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", col_names=T, show_col_types=F)
+data <- data[,-1] %>%
+  mutate(
+    cat_creatinine = cut(
+      INCL_LAB_serum_creatinine,
+      breaks = quantile(INCL_LAB_serum_creatinine, probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<1.4", "1.4-1.7", "1.7-2.1", ">2.1")
+    ),
+    cat_blood_urea = cut(
+      INCL_LAB_blood_urea_nitrogen,
+      breaks = quantile(INCL_LAB_blood_urea_nitrogen, probs = c(0, 0.25, 0.5, 0.75, 1)),
+      include.lowest = TRUE,
+      labels = c("<24.48", "24.48-31.15", "31.15-37.45", ">37.45")
+    )
+  ) %>% mutate_all(as.factor)
+str(data)
+```
+
+The variable we will keep for the imputation are listed in the file `desc_stat.Rmd`.
+
+```{r}
+data <- data[c("cat_blood_urea", "cat_creatinine", "RRT_ever", "DEATH28", "AGE_CLASS", 
+               "ATCD_Cirrhosis", "ATCD_Ckidney_disease", "ATCD_Chronic_hypertension")]
+```
+
+```{r}
+library(mice)
+set.seed(1234)
+
+method <- rep("", 8)
+names(method) <- names(data)
+method["RRT_ever"] <- "logreg.boot"
+
+logreg_class <- mice(data, method = method, m=5)
+data_logreg <- complete(logreg_class, 1)
+
+method <- rep("", 8)
+names(method) <- names(data)
+method["RRT_ever"] <- "rf"
+
+rf_class <- mice(data, method = method, m=5)
+data_rf <- complete(rf_class, 1)
+```
+
+```{r}
+fit_logreg <- with(logreg_class, glm(RRT_ever ~., family=binomial, data=data_logreg))
+pool(fit_logreg)
+
+fit_rf <- with(rf_class, glm(RRT_ever ~., family=binomial, data=data_rf))
+pool(fit_rf)
+
+fit_original <- glm(RRT_ever ~., data = data, family = binomial)
+summary(fit_original)
+```
+
+The estimated coefficients and their signs are similar between imputation.
+
+```{r}
+library(pROC)
+
+roc_logreg <- roc(data_logreg$RRT_ever, fit_logreg$analyses[[1]]$fitted.values)
+roc_rf  <- roc(data_rf$RRT_ever, fit_rf$analyses[[1]]$fitted.values)
+na_index <- which(is.na(data["RRT_ever"]))
+roc_original <- roc(data$RRT_ever[-na_index], fit_original$fitted.values)
+
+roc.test(roc_logreg, roc_rf)
+roc.test(roc_logreg, roc_original)
+roc.test(roc_rf, roc_original)
+```
+
+The NCBI says:
+"In general, an AUC of 0.5 suggests no discrimination (i.e., ability to diagnose patients with and without the disease or condition based on the test), 0.7 to 0.8 is considered acceptable, 0.8 to 0.9 is considered excellent, and more than 0.9 is considered outstanding."
+And our results are slightly above 0.5, thus any imputation is acceptable.
+
+```{r}
+set.seed(1234)
+
+new_md_logreg <- data_logreg[-na_index,]
+new_md_rf <- data_rf[-na_index,]
+
+new_na <- sample(1:320, 80)
+
+new_md_logreg$RRT_ever[new_na] <- NA
+new_md_rf$RRT_ever[new_na] <- NA
+```
+
+```{r}
+method <- rep("", 8)
+names(method) <- names(data)
+method["RRT_ever"] <- "logreg.boot"
+
+new_logreg_class <- mice(new_md_logreg, method = method, m=5)
+new_data_logreg <- complete(new_logreg_class, 1)
+
+method <- rep("", 8)
+names(method) <- names(data)
+method["RRT_ever"] <- "rf"
+
+new_rf_class <- mice(new_md_rf, method = method, m=5)
+new_data_rf <- complete(new_rf_class, 1)
+```
+
+```{r}
+true <- data$RRT_ever[-na_index]
+true <- as.numeric(as.character(true[new_na]))
+res_logreg <- as.numeric(as.character(new_data_logreg$RRT_ever[new_na]))
+res_rf <- as.numeric(as.character(new_data_rf$RRT_ever[new_na]))
+```
+
+```{r}
+RMSE_logreg <- sqrt(mean((res_logreg - true)^2))
+RMSE_rf <- sqrt(mean((res_rf - true)^2))
+RMSE_logreg ; RMSE_rf
+```
+
+They're not close to zero (for binary values that is)...
