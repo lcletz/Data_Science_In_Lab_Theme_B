@@ -1,0 +1,449 @@
+---
+title: "Variable Selection by Backward Stepwise Algorithm"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-11-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We collectively decided to keep the logistic regression multiple imputation during our analysis. We could have chosen either imputation methods since they are both stable.
+
+## Data Loading
+
+We copy the part that we need from `MICE_logreg_imputation2.Rmd`.
+
+```{r}
+library(readr)
+library(dplyr)
+library(mice)
+
+# Missing data table loading
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
+
+# Variables selected in `desc_stat.Rmd`
+vars_mice <- c(
+  "RRT_ever", 
+  "AGE_CLASS", 
+  "SEX",
+  "ATCD_Chronic_hypertension",
+  "ATCD_Ckidney_disease",
+  "INCL_LAB_serum_creatinine",
+  "INCL_LAB_blood_urea_nitrogen",
+  "INCL_SEPSIS_YN",
+  "SOFA_renal_H0",
+  "SOFA_renal_D7"
+)
+
+# Imputation method: logistic regression
+meth <- make.method(data)
+meth["RRT_ever"] <- "logreg"
+
+# Predictors Matrix to impute `RRT_ever` only
+pred <- make.predictorMatrix(data)
+pred[,] <- 0
+pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
+
+# MICE
+imp_rrt <- mice(
+  data,
+  m = 20,    # because of 20% missing data
+  maxit = 20,
+  method = meth,
+  predictorMatrix = pred,
+  seed=1234
+)
+```
+
+## Variables selection
+
+In this part, we will manually realize a forward stepwise algorithm for variables selection using AIC and BIC criteria. We will need to repeat various steps as introduced by *Stef van Buuren et al.*:
+
+1) Write scoping formula (for forward or backward stepwise).
+2) Write the expression for the smaller GLM (RRT_ever ~ 1) and for the scoping steps.
+3) Fit the model on every imputed dataset available using `with()` function.
+4) Count the number of times each variable has been chosen in the 20 fitted models.
+5) Exclude all variables that have never been chosen.
+6) Realize a multivariate Wald test using `D1()` to compare models with and without variables with less appearance.
+7) Calculate AIC and BIC.
+8) If AIC and BIC are smaller for most of models and if Wald test's p-value is higher than 0.05, then exclude those variables.
+9) Repeat each step until either AIC and BIC no longer decrease or the remaining variables are chosen in more than 30% of the models.
+
+(See *JPL Brand*'s *Development, implementation and evaluation of multiple imputation strategies for the statistical analysis of incomplete data sets (1999)* and *Stef van Buuren*'s *Flexible Imputation of Missing Data (2018)*)
+
+```{r, include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + ATCD_Diabetes + ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Severe_liver_insufficiency + ATCD_Cirrhosis + ATCD_Immunocompromised +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7 + DEATH28,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+"ARM_NUM", "ATCD_Smoking", "INCL_AKIN" and "SOFA_renal_H0" appear in more than 50% of the models. "INCL_AKIN" is always included.
+"ATCD_Diabetes", "ATCD_Severe_liver_insufficiency", "ATCD_Immunocompromised" and "DEATH28" are never chosen, we include them already.
+"ATCD_Cheart_failure" and "ATCD_Chronic_hypertension" are chosen once only, we need to see if we should exclude them or not.
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Chronic_hypertension + #ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain better AIC, BIC and p-value$\approx 0.43>0.05$, thus we can exclude "ATCD_Cheart_failure".
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Chronic_hypertension + #ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Chronic_hypertension + #ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain better AIC, BIC and p-value$\approx 0.4>0.05$, thus we can exclude "ATCD_Chronic_hypertension".
+
+```{r,include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+```
+
+```{r}
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+"AGE_CLASS" and "SOFA_renal_D7" are chosen twice only, we need to see if we should exclude them or not.
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + #AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain better AIC, BIC and p-value$\approx 0.64>0.05$, thus we can exclude "AGE_CLASS".
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0 + SOFA_renal_D7,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + #AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0, #+ SOFA_renal_D7,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain better AIC, BIC and p-value$\approx 0.62>0.05$, thus we can exclude "SOFA_renal_D7".
+
+```{r, include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + #ATCD_Chronic_hypertension + ATCD_Cheart_failure +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + #AGE_CLASS +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0, #+ SOFA_renal_D7,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+```
+
+```{r}
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+"ATCD_Ckidney_disease" and "INCL_LAB_serum_creatinine" are chosen thrice only, we need to see if we should exclude them or not.
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking +
+  ATCD_Ckidney_disease + ATCD_Cirrhosis +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + 
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Cirrhosis + #ATCD_Ckidney_disease +
+  INCL_LAB_serum_creatinine + INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain (almost only) better AIC, BIC and p-value$\approx 0.37>0.05$, thus we can exclude "ATCD_Ckidney_disease".
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Cirrhosis + INCL_LAB_serum_creatinine +
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + 
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Cirrhosis + #INCL_LAB_serum_creatinine + 
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain better AIC, BIC and p-value$\approx 0.51>005$, thus we can exclude "INCL_LAB_serum_creatinine".
+
+```{r, include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + ATCD_Cirrhosis +
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+```
+
+```{r}
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+"ATCD_Cirrhosis" is chosen thrice only, we need to see if we should exclude it or not.
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + ATCD_Cirrhosis +
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + 
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + #ATCD_Cirrhosis + 
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain (almost only) better AIC, BIC and p-value$\approx 0.45>0.05$, thus we can exclude "ATCD_Cirrhosis".
+
+```{r, include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + 
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+```
+
+```{r}
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+"INCL_LAB_blood_urea_nitrogen" is chosen 4 times only, we need to see if we should exclude it or not.
+
+```{r}
+fit_with <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + 
+  INCL_LAB_blood_urea_nitrogen + SEX + INCL_SEPSIS_YN + 
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+fit_without <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ATCD_Smoking + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+  family = binomial)
+)
+
+cat("AIC:", sapply(fit_without$analyses, AIC) - sapply(fit_with$analyses, AIC))   # if all results are negative, it's good news
+cat("\nBIC:", sapply(fit_without$analyses, BIC) - sapply(fit_with$analyses, BIC))   # idem
+
+D1(fit_with, fit_without)
+```
+
+We obtain (almost only) better AIC, BIC and p-value$\approx 0.43>0.05$, thus we can exclude "INCL_LAB_blood_urea_nitrogen".
+
+```{r, include=FALSE}
+scope <- list(upper = ~ ATCD_Smoking + SEX + INCL_SEPSIS_YN +
+  INCL_AKIN + ARM_NUM + SOFA_renal_H0,
+              lower = ~1)
+
+expr <- expression(f1 <- glm(
+    RRT_ever ~ 1,
+      family=binomial),
+  f2 <- step(f1, scope=scope))
+    
+fit_imp <- with(
+  imp_rrt,
+  expr
+)
+```
+
+```{r}
+formulas <- lapply(fit_imp$analyses, formula)
+terms <- lapply(formulas, terms)
+votes <- unlist(lapply(terms, labels))
+table(votes)
+```
+
+The lasting variables are chosen in more than 30% of the models (even more than 40%), thus the final model will include the following variables:
+
+- ARM_NUM
+- ATCD_Smoking
+- INCL_AKIN
+- INCL_SEPSIS_YN
+- SEX
+- SOFA_renal_H0
+
+It is great news that the variable ARM_NUM is always automatically included since it is the main variable in our project!
