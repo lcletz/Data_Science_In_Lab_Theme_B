@@ -14,8 +14,8 @@ OK - realise a series of descriptive statistics in order to select fewer variabl
 they are related to Missing Data (MD) in the response variable;
 OK - select useful variables in order to impute MD with MICE package;
 OK - compare imputed datasets in order to judge imputation stability;
-- backward stepwise with AIC and BIC criteria in order to select significant variables 
+OK - backward stepwise with AIC and BIC criteria in order to select significant variables 
 in logistic regression model;
-- compare results with same model applied with original missing data;
+OK - compare results with same model applied with original missing data;
 - prepare graphs and gather information needed for the final poster.
 
