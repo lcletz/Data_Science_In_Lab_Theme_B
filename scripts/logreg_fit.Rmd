@@ -1,0 +1,190 @@
+---
+title: "Fitted models and comparison"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-12-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We will fit the same logistic regression model on both the MICE-imputed data and the missing values removed data. This way we will compare them and see if imputation was worth here and also we will be able to quantify/explain some relations between variables, the most important one being the relation between being treated (or not) with bicarbonate sodium and being dependent (or not) to RRT.
+
+## Data Loading
+
+We copy the part that we need from `MICE_logreg_imputation2.Rmd`.
+
+```{r}
+library(readr)
+library(dplyr)
+library(mice)
+
+# Missing data table loading
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
+
+# Variables selected in `desc_stat.Rmd`
+vars_mice <- c(
+  "RRT_ever", 
+  "AGE_CLASS", 
+  "SEX",
+  "ATCD_Chronic_hypertension",
+  "ATCD_Ckidney_disease",
+  "INCL_LAB_serum_creatinine",
+  "INCL_LAB_blood_urea_nitrogen",
+  "INCL_SEPSIS_YN",
+  "SOFA_renal_H0",
+  "SOFA_renal_D7"
+)
+
+# Imputation method: logistic regression
+meth <- make.method(data)
+meth["RRT_ever"] <- "logreg"
+
+# Predictors Matrix to impute `RRT_ever` only
+pred <- make.predictorMatrix(data)
+pred[,] <- 0
+pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
+
+# MICE
+imp_rrt <- mice(
+  data,
+  m = 20,    # because of 20% missing data
+  maxit = 20,
+  method = meth,
+  predictorMatrix = pred,
+  seed=1234
+)
+```
+
+## Models fitting
+
+The variables we will keep in our GLM have been selected in the file `variables_selection.Rmd`.
+
+```{r}
+fit_imp <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ARM_NUM + ATCD_Smoking + INCL_AKIN + 
+        INCL_SEPSIS_YN + SEX + SOFA_renal_H0 - 1,
+      family=binomial)
+)
+```
+
+```{r}
+pooled <- pool(fit_imp)       # Rubin's rule to compute pooled estimates of parameters
+summary(pooled)
+round(summary(pooled)$p.value,3)     # easier to read 
+```
+
+The most significant predictor is the AKIN score at inclusion followed by the arm the patient is in. All others are above 0.05 but we might also keep the sex since it is not so far from 0.05. The fact that the arm is a significant variable is great news!
+
+Let's have a quick comparison between MICE-imputed data and the missing values removed data:
+
+```{r}
+data_md <- na.omit(data)    # rows with NA deleted
+
+fit_md <- glm(RRT_ever ~ ARM_NUM + ATCD_Smoking + INCL_AKIN + 
+        INCL_SEPSIS_YN + SEX + SOFA_renal_H0 - 1,
+    family=binomial,
+    data=data_md) 
+
+summary(fit_md)
+```
+
+The most significant predictors are also INCL_AKIN and ARM_NUM, but it seems that almost all the other predictors might be significant. 
+
+## Comparison with complete case data
+
+Since there are no $R^2$ or RMSE for pooled estimators, we will compare the two cases with what seems to be proven as efficient in the article *Evaluation of predictive model performance of an existing model in the presence of missing data* (https://pubmed.ncbi.nlm.nih.gov/33843085/) thus the AUC/ROC metrics.
+
+```{r}
+library(pROC)
+
+pred_md <- predict(fit_md, type = "response")
+roc_md <- roc(data_md$RRT_ever, pred_md)
+auc(roc_md)
+ci.auc(roc_md)
+```
+
+```{r}
+fitted_val <- NULL     # fitted values from all 20 imputations retrieved
+for(i in 1:20){
+  fitted_val <- cbind(fitted_val, fit_imp$analyses[[i]]$fitted.values)
+}
+
+na_index <- which(!is.na(data$RRT_ever))
+y <- data$RRT_ever[na_index]
+fitted_val <- fitted_val[na_index,]
+
+for(i in 1:20){
+  print(roc(y, fitted_val[,i])$auc)    # AUC for each imputation
+}
+
+pred_avg <- rowMeans(fitted_val)
+roc_avg <- roc(y, pred_avg)    # AUC of averaged probabilities
+auc(roc_avg)
+ci.auc(roc_avg)
+```
+
+The AUCs are really close, the AUC of averaged probabilities for MICE-imputed data is slightly above the removed NA data's one.
+
+## Odd ratios
+
+Inspired by *The odds are it's wrong: Correcting a common mistake in statistics* from *David Voas* and *Laura Watt*.
+
+The odd ratio of an estimator is the exponential of the estimated coefficient. If it's greater than 1, then the variable makes the outcome (RRT dependency) more likely and if it's lower than 1, less likely.
+
+```{r}
+sum_pooled <- summary(pooled)
+sum_pooled$OR <- exp(sum_pooled$estimate)
+print(sum_pooled[,c("term","OR")])
+```
+It appears that a patient that:
+
+- has a high AKIN score is more likely to get RRT;
+- has a sepsis will get RRT,
+- has a high renal SOFA score is more likely to get RRT;
+
+and on the other hand:
+
+- is smoking a lot is not more likely to get RRT;
+- is a man is less likely to get RRT;
+- and most importantly, is under BS treatment is less likely to get RRT!
+
+Let's add some more predictors and calculate their odd ratios (even though the model will be less precise/effective):
+
+```{r}
+fit_imp <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ARM_NUM + ATCD_Smoking + INCL_AKIN + 
+        INCL_SEPSIS_YN + SEX + SOFA_renal_H0 + AGE_CLASS +
+        + ATCD_Ckidney_disease + ATCD_Cirrhosis + ATCD_Diabetes - 1,
+      family=binomial)
+)
+
+pooled <- pool(fit_imp)
+summary(pooled)
+round(summary(pooled)$p.value,3)
+
+sum_pooled <- summary(pooled)
+sum_pooled$OR <- exp(sum_pooled$estimate)
+print(sum_pooled[,c("term","OR")])
+```
+
+"AGE_CLASS", "ATCD_Ckidney_disease", "ATCD_Cirrhosis", "ATCD_Diabetes" aren't significant (as expected).
+
+It appears that a patient that:
+
+- has a high AKIN score is more likely to get RRT;
+- has a sepsis will get RRT,
+- has a high renal SOFA score is more likely to get RRT;
+- is old is slightly more likely to get RRT;
+- has a kidney disease is more likely to get RRT;
+
+and on the other hand:
+
+- is smoking a lot is not more likely to get RRT;
+- is a man is less likely to get RRT;
+- has a cirrhosis is less likely to get RRT (who would've known?!);
+- has diabetes is not more likely to get RRT;
+- and most importantly, is under BS treatment is less likely to get RRT!
