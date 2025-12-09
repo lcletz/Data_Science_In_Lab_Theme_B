@@ -17,5 +17,5 @@ OK - compare imputed datasets in order to judge imputation stability;
 OK - backward stepwise with AIC and BIC criteria in order to select significant variables 
 in logistic regression model;
 OK - compare results with same model applied with original missing data;
-- prepare graphs and gather information needed for the final poster.
+OK - prepare graphs and gather information needed for the final poster.
 
