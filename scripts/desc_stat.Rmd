@@ -112,6 +112,40 @@ In **Clinical review: Timing of renal replacement therapy** published in *Critic
 "RRT is usually initiated at BUN levels between 50 mg/dl and 110 mg/dl (approximate to 18 to 40 mmol/l) or a serum creatinine between 3.5 and 5 mg/dl."
 So, maybe most MD comes from patients that clearly don't need RRT due to their low BUN.
 
+## Statistical Tests
+
+We now perform formal statistical tests to confirm our visual observations. The goal is to test whether there is a significant association between each variable and the missingness of RRT_ever.
+
+### Chi-squared tests for categorical variables
+
+We use Chi-squared tests to assess the association between categorical variables and RRT missingness. A significant p-value (< 0.05) suggests that the variable may be related to the missing data mechanism.
+
+```{r chi-squared-tests}
+vars_cat <- c(
+  "SEX", "INCL_SEPSIS_YN", "AGE_CLASS", "INCL_AKIN", "ARM_NUM",
+  "ATCD_Smoking", "ATCD_Diabetes", "ATCD_Chronic_hypertension",
+  "ATCD_Cheart_failure", "ATCD_Ckidney_disease", "SOFA_renal_H0",
+  "ATCD_Severe_liver_insufficiency", "ATCD_Cirrhosis", "ATCD_Immunocompromised",
+  "DEATH28"
+)
+
+for (v in vars_cat) {
+  cat("\n\nVariable :", v, "\n")
+  print(table(data[[v]], data$RRT_MD, useNA = "ifany"))
+  print(chisq.test(table(data[[v]], data$RRT_MD)))
+}
+
+```
+
+### Wilcoxon tests for continuous variables
+
+For continuous variables, we use the Wilcoxon rank-sum test. 
+
+```{r wilcoxon-tests}
+wilcox.test(INCL_LAB_serum_creatinine ~ RRT_MD, data = data)
+wilcox.test(INCL_LAB_blood_urea_nitrogen ~ RRT_MD, data = data)
+```
+
 ## FA (Factorial Analysis)
 
 We have seen counts, distributions, and now we will precise our previous observations with a Factorial Analysis. We want all variables to be categorical, thus we convert our two quantitative variables as 4-levels qualitative variables and we choose the quantiles as levels breaks:
