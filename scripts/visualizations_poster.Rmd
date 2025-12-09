@@ -1,0 +1,696 @@
+---
+title: "Visualizations for the Poster"
+author: "ACHIQ Aya, CLETZ Laura, ZHU Qingjian"
+date: "2025-12-06"
+output: pdf_document
+---
+
+This file generates several suggested visualizations for the study poster.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+# PART 1: Data loading and missing data exploration
+## 1.1 Loading required libraries and data
+
+```{r load-libraries}
+# Data manipulation
+library(readr)
+library(dplyr)
+
+# Imputation
+library(mice)
+
+# Visualization
+library(ggplot2)
+
+# Tables
+library(gt)
+library(gtsummary)
+
+# Missing data visualization
+library(naniar)
+
+# ROC curves
+library(pROC)
+```
+
+```{r load-data}
+# Load the dataset
+data <- read_delim("../data/TABLE_TO_IMPUTE.csv", show_col_types = FALSE)
+
+# Define variables used for MICE imputation
+vars_mice <- c(
+
+  "RRT_ever",                      # Outcome: dialysis dependency (to be imputed)
+  "AGE_CLASS",                     # Age category
+  "SEX",                           # Sex
+  "ATCD_Chronic_hypertension",     # History: chronic hypertension
+  "ATCD_Ckidney_disease",          # History: chronic kidney disease
+  "INCL_LAB_serum_creatinine",     # Lab: serum creatinine at inclusion
+  "INCL_LAB_blood_urea_nitrogen",  # Lab: blood urea nitrogen at inclusion
+  "INCL_SEPSIS_YN",                # Sepsis at inclusion (yes/no)
+  "SOFA_renal_H0",                 # SOFA renal score at H0
+  "SOFA_renal_D7"                  # SOFA renal score at Day 7
+)
+```
+
+## 1.2 Missing data summary
+
+```{r missing-summary}
+# Summary of missing values for variables used in imputation
+miss_summary <- data %>%
+  select(all_of(vars_mice)) %>%
+  miss_var_summary()
+
+print(miss_summary)
+```
+
+## 1.3 Barplot of missing data percentages
+
+Why this plot?
+  - Clear visualization of missingness by variable
+  - Shows that RRT_ever has ~20% missing, justifying m=20 imputations
+  - Easy to interpret for poster viewers
+
+
+```{r missing-barplot, fig.width=9, fig.height=6}
+p_missing_bar <- data %>%
+  select(all_of(vars_mice)) %>%
+  miss_var_summary() %>%
+  mutate(
+    # Create readable labels for the plot
+    variable_label = case_when(
+      variable == "RRT_ever" ~ "Dialysis (RRT)",
+      variable == "AGE_CLASS" ~ "Age class",
+      variable == "SEX" ~ "Sex",
+      variable == "ATCD_Chronic_hypertension" ~ "Chronic hypertension",
+      variable == "ATCD_Ckidney_disease" ~ "Chronic kidney disease",
+      variable == "INCL_LAB_serum_creatinine" ~ "Serum creatinine",
+      variable == "INCL_LAB_blood_urea_nitrogen" ~ "Blood urea nitrogen",
+      variable == "INCL_SEPSIS_YN" ~ "Sepsis",
+      variable == "SOFA_renal_H0" ~ "SOFA renal (H0)",
+      variable == "SOFA_renal_D7" ~ "SOFA renal (D7)",
+      TRUE ~ variable
+    )
+  ) %>%
+  ggplot(aes(x = reorder(variable_label, pct_miss), y = pct_miss)) +
+  geom_col(fill = "#E63946", alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_miss)), hjust = -0.2, size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, max(miss_summary$pct_miss) * 1.2)) +
+  labs(
+    title = "Missing Data by Variable",
+    subtitle = "Variables used in MICE imputation",
+    x = "",
+    y = "Missing (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "gray40"),
+    panel.grid.major.y = element_blank()
+  )
+
+print(p_missing_bar)
+```
+
+```{r save-missing-plot}
+ggsave(
+  "missing_barplot.png",
+  p_missing_bar,
+  width = 9,
+  height = 6,
+  dpi = 300
+)
+```
+
+# PART 2: MICE Imputation
+
+Parameters chosen:
+  - m = 20: Number of imputations (rule of thumb: m ≈ % of missing data)
+  - maxit = 20: Number of iterations for convergence
+  - method = "logreg": Logistic regression for binary outcome (RRT_ever)
+  - seed = 1234: For reproducibility
+
+## 2.1 MICE imputation setup and execution
+
+```{r mice-imputation}
+# Define imputation method
+# We only impute RRT_ever using logistic regression
+meth <- make.method(data)
+meth["RRT_ever"] <- "logreg"
+
+# Define predictor matrix
+# RRT_ever is predicted by all other variables in vars_mice
+pred <- make.predictorMatrix(data)
+pred[, ] <- 0
+pred["RRT_ever", setdiff(vars_mice, "RRT_ever")] <- 1
+
+# Run MICE imputation
+# This creates 20 imputed datasets
+imp_rrt <- mice(
+  data,
+  m = 20,
+  maxit = 20,
+  method = meth,
+  predictorMatrix = pred,
+  seed = 1234
+)
+```
+
+# PART 3: Table 1 - Baseline characteristics 
+
+This is relevant for the poster because it:
+  - Shows patient characteristics at baseline
+  - Compares treatment groups to check balance after randomization
+  - Includes p-values to detect any imbalance
+
+NOTE: This table uses OBSERVED data (not imputed)
+
+## 3.1 Data preparation for Table 1
+
+```{r table1-prep}
+data_table1 <- data %>%
+  select(
+    ARM_NUM,
+    AGE_CLASS,
+    SEX,
+    ATCD_Chronic_hypertension,
+    ATCD_Ckidney_disease,
+    ATCD_Diabetes,
+    ATCD_Cirrhosis,
+    ATCD_Smoking,
+    INCL_AKIN,
+    INCL_SEPSIS_YN,
+    SOFA_renal_H0,
+    INCL_LAB_serum_creatinine,
+    INCL_LAB_blood_urea_nitrogen,
+    RRT_ever
+  ) %>%
+  mutate(
+    # Create treatment group labels
+    Treatment = factor(
+      ARM_NUM,
+      levels = c(0, 1),
+      labels = c("Control", "Bicarbonate")
+    )
+  ) %>%
+  select(-ARM_NUM)
+```
+
+## 3.2 Create Table 1 with gtsummary
+
+```{r table1-create}
+tab1 <- data_table1 %>%
+  tbl_summary(
+    by = Treatment,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      AGE_CLASS ~ "Age class",
+      SEX ~ "Sex (Male)",
+      ATCD_Chronic_hypertension ~ "Chronic hypertension",
+      ATCD_Ckidney_disease ~ "Chronic kidney disease",
+      ATCD_Diabetes ~ "Diabetes",
+      ATCD_Cirrhosis ~ "Cirrhosis",
+      ATCD_Smoking ~ "Smoking",
+      INCL_AKIN ~ "AKIN score (inclusion)",
+      INCL_SEPSIS_YN ~ "Sepsis",
+      SOFA_renal_H0 ~ "SOFA renal score (H0)",
+      INCL_LAB_serum_creatinine ~ "Serum creatinine (µmol/L)",
+      INCL_LAB_blood_urea_nitrogen ~ "Blood urea nitrogen (mmol/L)",
+      RRT_ever ~ "Dialysis (RRT)"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  ) %>%
+  add_overall() %>%
+  add_p() %>%
+  modify_header(label = "**Variable**") %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Treatment Group**") %>%
+  bold_labels()
+
+print(tab1)
+```
+
+## 3.3 Export Table 1 as gt
+
+```{r table1-gt}
+tab1_gt <- tab1 %>%
+  as_gt() %>%
+  tab_header(
+    title = md("**Table 1: Baseline Patient Characteristics**"),
+    subtitle = "Comparison between treatment arms at inclusion"
+  ) %>%
+  tab_source_note(
+    source_note = "BICAR-ICU Study. Mean (SD) for continuous variables, n (%) for categorical variables."
+  )
+
+print(tab1_gt)
+```
+
+```{r save-table1}
+gtsave(tab1_gt, "table1_baseline.png", vwidth = 900, vheight = 700)
+```
+
+# PART 4: Main Results - BARPLOT & FOREST PLOT
+
+This section presents the main findings:
+  1. Barplot: Simple comparison of dialysis rates between groups
+  2. Forest plot: Odds ratios from the logistic regression model
+
+These are the key figures for the poster as they directly show:
+  - The treatment effect (bicarbonate reduces dialysis risk)
+  - Statistical significance
+
+
+## 4.1 Barplot: Dialysis proportion by treatment group
+
+NOTE ON DATA USED:
+  This barplot uses COMPLETE CASES (observed data only), not imputed data.
+  This is a descriptive visualization showing what was actually observed.
+  
+Alternative approach (not implemented):
+We could compute proportions on imputed data by averaging across the 20 imputations:
+    prop_imp <- sapply(1:20, function(i) {
+      d <- complete(imp_rrt, i)
+      tapply(d$RRT_ever, d$ARM_NUM, mean)
+    })
+Then compute mean and SD of proportions across imputations.
+
+
+```{r barplot-data-prep}
+# Prepare data for barplot (complete cases only)
+data_bar <- data %>%
+  filter(!is.na(RRT_ever) & !is.na(ARM_NUM)) %>%
+  mutate(
+    Treatment = ifelse(ARM_NUM == 1, "Bicarbonate", "Control"),
+    RRT_label = ifelse(RRT_ever == 1, "Dialysis (RRT)", "No dialysis")
+  )
+
+# Calculate proportions by treatment group
+prop_data <- data_bar %>%
+  group_by(Treatment) %>%
+  summarise(
+    n_total = n(),
+    n_rrt = sum(RRT_ever == 1),
+    prop_rrt = mean(RRT_ever == 1) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = paste0(round(prop_rrt, 1), "%\n(", n_rrt, "/", n_total, ")")
+  )
+
+print(prop_data)
+```
+
+```{r barplot-rrt, fig.width=7, fig.height=6}
+p_barplot <- ggplot(prop_data, aes(x = Treatment, y = prop_rrt, fill = Treatment)) +
+  geom_col(width = 0.6, color = "black", linewidth = 0.3) +
+  # Add percentage labels with counts
+  geom_text(
+    aes(label = label),
+    vjust = -0.5,
+    size = 4.5,
+    fontface = "bold"
+  ) +
+  # Color scheme: green for bicarbonate (beneficial), red-orange for control
+  scale_fill_manual(
+    values = c("Bicarbonate" = "#2A9D8F", "Control" = "#E76F51")
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(prop_data$prop_rrt) * 1.25),
+    expand = c(0, 0)
+  ) +
+  labs(
+    title = "Proportion of Patients Requiring Dialysis",
+    subtitle = "Comparison between treatment arms",
+    x = "",
+    y = "Patients with dialysis (%)",
+    caption = "RRT = Renal Replacement Therapy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "gray40"),
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 12, face = "bold")
+  )
+
+print(p_barplot)
+```
+
+```{r save-barplot}
+ggsave(
+  "barplot_rrt_proportion.png",
+  p_barplot,
+  width = 7,
+  height = 6,
+  dpi = 300
+)
+```
+
+
+## 4.2 Logistic regression model on imputed data
+
+Model specification:
+  - Outcome: RRT_ever (dialysis dependency)
+  - Main predictor: ARM_NUM (treatment: 0=control, 1=bicarbonate)
+  - Covariates: Smoking, AKIN score, Sepsis, Sex, SOFA renal score
+  - No intercept (-1): Allows direct interpretation of coefficients
+ 
+
+```{r model-fitting}
+# Fit logistic regression on each imputed dataset
+fit_imp <- with(
+  imp_rrt,
+  glm(RRT_ever ~ ARM_NUM + ATCD_Smoking + INCL_AKIN +
+        INCL_SEPSIS_YN + SEX + SOFA_renal_H0 - 1,
+      family = binomial)
+)
+
+# Pool results using Rubin's rules
+# This combines estimates and standard errors across the 20 imputations
+pooled <- pool(fit_imp)
+sum_pooled <- summary(pooled, conf.int = TRUE, conf.level = 0.95)
+
+print(sum_pooled)
+```
+
+
+## 4.3 Forest plot of Odds Ratios
+
+Interpretation:
+  - OR < 1: Variable reduces dialysis risk
+  - OR > 1: Variable increases dialysis risk
+  - OR = 1: No effect (reference line)
+  - Red points: Statistically significant (p < 0.05)
+  - Blue points: Not significant
+
+```{r forest-data-prep}
+# Prepare data for forest plot
+forest_data <- data.frame(
+  variable = sum_pooled$term,
+  estimate = sum_pooled$estimate,
+  std.error = sum_pooled$std.error,
+  p.value = sum_pooled$p.value,
+  conf.low = sum_pooled$`2.5 %`,
+  conf.high = sum_pooled$`97.5 %`
+)
+
+# Calculate Odds Ratios and their confidence intervals
+# OR = exp(coefficient) for logistic regression
+forest_data <- forest_data %>%
+  mutate(
+    OR = exp(estimate),
+    OR_low = exp(conf.low),
+    OR_high = exp(conf.high)
+  )
+
+# Create readable labels for the plot
+forest_data <- forest_data %>%
+  mutate(
+    variable_label = case_when(
+      variable == "ARM_NUM" ~ "Bicarbonate treatment",
+      variable == "ATCD_Smoking" ~ "Smoking",
+      variable == "INCL_AKIN" ~ "AKIN score (inclusion)",
+      variable == "INCL_SEPSIS_YN" ~ "Sepsis",
+      variable == "SEX" ~ "Sex (Male)",
+      variable == "SOFA_renal_H0" ~ "SOFA renal score (H0)",
+      TRUE ~ variable
+    )
+  )
+
+# Order by OR for better readability
+forest_data <- forest_data %>%
+  arrange(OR)
+
+print(forest_data)
+```
+
+```{r forest-plot, fig.width=9, fig.height=6}
+# Set factor levels to maintain order in plot
+forest_data$variable_label <- factor(
+  forest_data$variable_label,
+  levels = forest_data$variable_label
+)
+
+p_forest <- ggplot(forest_data, aes(x = OR, y = variable_label)) +
+  # Reference line at OR = 1 (no effect)
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40", linewidth = 0.8) +
+  # Confidence intervals
+  geom_errorbarh(
+    aes(xmin = OR_low, xmax = OR_high),
+    height = 0.25,
+    linewidth = 0.8,
+    color = "steelblue"
+  ) +
+  # Points colored by significance
+  geom_point(
+    aes(color = ifelse(p.value < 0.05, "Significant", "Not significant")),
+    size = 4
+  ) +
+  scale_color_manual(
+    values = c("Significant" = "#E63946", "Not significant" = "#457B9D"),
+    name = "Significance (p < 0.05)"
+  ) +
+  # Log scale for OR (standard practice)
+  scale_x_log10(
+    breaks = c(0.25, 0.5, 1, 2, 4),
+    labels = c("0.25", "0.5", "1", "2", "4")
+  ) +
+  labs(
+    title = "Forest Plot of Odds Ratios",
+    subtitle = "Pooled logistic regression model (MICE, m = 20)",
+    x = "Odds Ratio (log scale, 95% CI)",
+    y = "",
+    caption = "Dashed line: OR = 1 (no effect)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "gray40"),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(size = 11)
+  )
+
+print(p_forest)
+```
+
+```{r save-forest-plot}
+ggsave(
+  "forest_plot.png",
+  p_forest,
+  width = 9,
+  height = 6,
+  dpi = 300
+)
+```
+
+# PART 5: Summary table of model results
+
+## 5.1 Create formatted results table
+
+```{r results-table}
+table_data <- forest_data %>%
+  select(variable_label, OR, OR_low, OR_high, p.value) %>%
+  mutate(
+    OR_formatted = sprintf("%.2f", OR),
+    IC_95 = sprintf("[%.2f - %.2f]", OR_low, OR_high),
+    p_formatted = ifelse(p.value < 0.001, "< 0.001", sprintf("%.3f", p.value)),
+    Significant = ifelse(p.value < 0.05, "Yes", "No")
+  ) %>%
+  select(variable_label, OR_formatted, IC_95, p_formatted, Significant) %>%
+  rename(
+    "Variable" = variable_label,
+    "Odds Ratio" = OR_formatted,
+    "95% CI" = IC_95,
+    "p-value" = p_formatted
+  )
+
+# Create formatted table with gt
+tab_results <- table_data %>%
+  gt() %>%
+  tab_header(
+    title = md("**Logistic Regression Results**"),
+    subtitle = "Factors associated with dialysis dependency (RRT)"
+  ) %>%
+  tab_source_note(
+    source_note = "Model fitted on MICE-imputed data (m = 20)"
+  ) %>%
+  # Highlight significant rows
+  tab_style(
+    style = cell_fill(color = "#FDECEA"),
+    locations = cells_body(rows = Significant == "Yes")
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(columns = "Odds Ratio", rows = Significant == "Yes")
+  ) %>%
+  cols_align(
+    align = "center",
+    columns = c("Odds Ratio", "95% CI", "p-value", "Significant")
+  ) %>%
+  tab_options(
+    table.font.size = 12,
+    heading.title.font.size = 14,
+    heading.subtitle.font.size = 12
+  )
+
+print(tab_results)
+```
+
+```{r save-results-table}
+gtsave(tab_results, "table_results.png", vwidth = 700, vheight = 400)
+```
+
+# PART 6: ROC curves - model performance
+
+Important Note:
+This is an IN-SAMPLE evaluation (same data used for fitting and evaluation). This is not external validation. AUC may be optimistic.
+
+For a clinical trial like BICAR-ICU, the main result is the treatment effect (forest plot), not the predictive performance (ROC). The ROC is shown here mainly to demonstrate that MICE imputation was appropriate.
+
+## 6.1 ROC for complete case data
+
+```{r roc-complete-case}
+# Remove rows with any NA
+data_cc <- na.omit(data)
+
+# Fit model on complete cases
+fit_cc <- glm(
+  RRT_ever ~ ARM_NUM + ATCD_Smoking + INCL_AKIN +
+    INCL_SEPSIS_YN + SEX + SOFA_renal_H0 - 1,
+  family = binomial,
+  data = data_cc
+)
+
+# Calculate predicted probabilities and ROC
+pred_cc <- predict(fit_cc, type = "response")
+roc_cc <- roc(data_cc$RRT_ever, pred_cc)
+
+cat("AUC - Complete cases:", round(auc(roc_cc), 3), "\n")
+cat("95% CI:", round(ci.auc(roc_cc)[1], 3), "-", round(ci.auc(roc_cc)[3], 3), "\n")
+```
+
+## 6.2 ROC for imputed data (averaged probabilities)
+
+```{r roc-imputed}
+# Get fitted values from all 20 imputations
+fitted_val <- NULL
+for (i in 1:20) {
+  fitted_val <- cbind(fitted_val, fit_imp$analyses[[i]]$fitted.values)
+}
+
+# Keep only observations with observed RRT_ever
+na_index <- which(!is.na(data$RRT_ever))
+y_obs <- data$RRT_ever[na_index]
+fitted_val <- fitted_val[na_index, ]
+
+# Average predicted probabilities across 20 imputations
+pred_avg <- rowMeans(fitted_val)
+
+# Calculate ROC
+roc_imp <- roc(y_obs, pred_avg)
+
+cat("AUC - Imputed data (averaged):", round(auc(roc_imp), 3), "\n")
+cat("95% CI:", round(ci.auc(roc_imp)[1], 3), "-", round(ci.auc(roc_imp)[3], 3), "\n")
+```
+
+## 6.3 Comparative ROC plot
+
+```{r roc-comparison-plot, fig.width=8, fig.height=7}
+# Extract ROC coordinates
+roc_cc_df <- data.frame(
+  sensitivity = roc_cc$sensitivities,
+  specificity = 1 - roc_cc$specificities,
+  method = "Complete cases"
+)
+
+roc_imp_df <- data.frame(
+  sensitivity = roc_imp$sensitivities,
+  specificity = 1 - roc_imp$specificities,
+  method = "MICE (m = 20)"
+)
+
+roc_data <- rbind(roc_cc_df, roc_imp_df)
+
+# Prepare legend labels with AUC values
+auc_cc <- round(auc(roc_cc), 3)
+auc_imp <- round(auc(roc_imp), 3)
+
+label_cc <- paste0("Complete cases (AUC = ", auc_cc, ")")
+label_imp <- paste0("MICE, m = 20 (AUC = ", auc_imp, ")")
+
+roc_data$method_label <- ifelse(
+  roc_data$method == "Complete cases",
+  label_cc,
+  label_imp
+)
+
+# Create ROC plot
+p_roc <- ggplot(roc_data, aes(x = specificity, y = sensitivity, color = method_label)) +
+  # Diagonal line (random classifier)
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+  # ROC curves
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(
+    values = c("#E63946", "#457B9D"),
+    name = "Method"
+  ) +
+  labs(
+    title = "Comparative ROC Curves",
+    subtitle = "MICE imputation vs Complete cases",
+    x = "1 - Specificity (False Positive Rate)",
+    y = "Sensitivity (True Positive Rate)",
+    caption = "Dashed line: random classifier (AUC = 0.5)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "gray40"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    aspect.ratio = 1
+  ) +
+  coord_equal()
+
+print(p_roc)
+```
+
+```{r save-roc-plot}
+ggsave(
+  "roc_comparison.png",
+  p_roc,
+  width = 8,
+  height = 7,
+  dpi = 300
+)
+```
+
+Notes for potential future analyses:
+
+1. Barplot on imputed data
+   The current barplot uses complete cases. 
+
+2. Subgroup analysis
+   To assess whether the bicarbonate effect varies across subpopulations:
+   - By AKIN score (low vs high)
+   - By sepsis status (yes vs no)
+   - By age (< 65 vs >= 65 years)
+   - By sex
+   
+(Maybe we can create a forest plot of treatment OR by subgroup)
+This would show if certain patient groups benefit more from bicarbonate.
+
