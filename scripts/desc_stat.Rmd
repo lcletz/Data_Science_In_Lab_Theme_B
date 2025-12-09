@@ -75,7 +75,8 @@ plots_cat <- map(names(data)[c(2:9,12:19)], function(x){
       title = paste("Missingness of RRT information by", x),
       y = "% Missing vs Observed"
     ) +
-    theme_minimal()
+    theme_minimal() +
+    scale_fill_manual(values = c('#2F3CA8','#75F1FF'))
 }) 
 
 for(i in 1:length(plots_cat)){
@@ -289,3 +290,32 @@ We thus keep:
 - SOFA_renal_D7
 
 (We will not convert the quantitative variables in our imputation's models.)
+
+### For poster
+
+```{r}
+names(data) <- c("SUBJID", "Smoking", "Diabetes", "Chr. hypertension", "Chr. heart failure",
+                 "Chr. kidney disease", "Sever liver ins.", "Cirrhosis", "Immunocomp.",
+                 "nope", "nope", "Sex", "Sepsis", "Age class", "AKIN",
+                 "Arm", "SOFA renal", "SOFA renal 2", "Death", "RRT", 
+                 "RRT 2", "Se. creatinine", "BUN")
+
+disj <- data[-c(1,10:11,21)] %>% mutate_at("RRT", addNA) %>% as.data.frame()
+disj <- acm.disjonctif(disj)
+
+res.fa <- CA(disj, graph=F, col.sup=illu_var)
+```
+
+```{r}
+col_group <- rep("#2F3CA8", ncol(disj))
+col_group[RRT_index] <- "red"
+col_group <- col_group[-illu_var]
+
+p <- plot(res.fa, axes=2:3, invisible = "row", repel=T, 
+     col.col = col_group, col.col.sup = "#75F1FF", label="col")
+
+p + theme_void() 
+```
+
+
+
