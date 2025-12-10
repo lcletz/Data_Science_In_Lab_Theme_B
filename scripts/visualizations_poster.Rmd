@@ -508,9 +508,15 @@ table_data <- forest_data %>%
     OR_formatted = sprintf("%.2f", OR),
     IC_95 = sprintf("[%.2f - %.2f]", OR_low, OR_high),
     p_formatted = ifelse(p.value < 0.001, "< 0.001", sprintf("%.3f", p.value)),
-    Significant = ifelse(p.value < 0.05, "Yes", "No")
+    Significance = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      p.value < 0.1 ~ ".",
+      TRUE ~ ""
+    )
   ) %>%
-  select(variable_label, OR_formatted, IC_95, p_formatted, Significant) %>%
+  select(variable_label, OR_formatted, IC_95, p_formatted, Significance) %>%
   rename(
     "Variable" = variable_label,
     "Odds Ratio" = OR_formatted,
@@ -528,18 +534,22 @@ tab_results <- table_data %>%
   tab_source_note(
     source_note = "Model fitted on MICE-imputed data (m = 20)"
   ) %>%
-  # Highlight significant rows
+  tab_footnote(
+    footnote = "*** p < 0.001, ** p < 0.01, * p < 0.05, . p < 0.1",
+    locations = cells_column_labels(columns = "Significance")
+  ) %>%
+  # Highlight significant rows (p < 0.05)
   tab_style(
     style = cell_fill(color = "#FDECEA"),
-    locations = cells_body(rows = Significant == "Yes")
+    locations = cells_body(rows = Significance %in% c("*", "**", "***"))
   ) %>%
   tab_style(
     style = cell_text(weight = "bold"),
-    locations = cells_body(columns = "Odds Ratio", rows = Significant == "Yes")
+    locations = cells_body(columns = "Odds Ratio", rows = Significance %in% c("*", "**", "***"))
   ) %>%
   cols_align(
     align = "center",
-    columns = c("Odds Ratio", "95% CI", "p-value", "Significant")
+    columns = c("Odds Ratio", "95% CI", "p-value", "Significance")
   ) %>%
   tab_options(
     table.font.size = 12,
